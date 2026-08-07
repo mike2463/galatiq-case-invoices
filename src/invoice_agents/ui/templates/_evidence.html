@@ -1,0 +1,320 @@
+{# Shared evidence sections for case detail and the review package.
+   Raw values render before normalized ones (UI principle 3); ambiguity notes
+   are always visible; nothing here reinterprets stored evidence. #}
+
+{% import '_macros.html' as m %}
+
+{% macro source_section(source) %}
+<section class="card" id="source">
+  <h2>Source</h2>
+  <dl class="kv">
+    <dt>File</dt><dd class="mono">{{ source.canonical_path }}</dd>
+    <dt>Format</dt><dd>{{ m.format_chip(source.source_format) }}</dd>
+    <dt>SHA-256</dt><dd>{{ m.mono_trunc(source.sha256, 'SHA-256') }}</dd>
+    <dt>Size</dt><dd>{{ source.size_bytes }} bytes</dd>
+    {% if source.page_count %}<dt>Pages</dt><dd>{{ source.page_count }}</dd>{% endif %}
+    {% if source.row_count is not none and source.row_count != '' %}<dt>Rows</dt><dd>{{ source.row_count }}</dd>{% endif %}
+    <dt>Source ID</dt><dd>{{ m.mono_id(source.source_id, 'source ID') }}</dd>
+    <dt>Modified</dt><dd>{{ source.modified_at|fmt_dt }}</dd>
+  </dl>
+</section>
+{% endmacro %}
+
+{% macro extraction_section(invoice) %}
+<section class="card" id="extraction">
+  <h2>Extraction</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <caption>Extracted fields: raw source value first, then the recorded normalization</caption>
+      <thead>
+        <tr><th scope="col">Field</th><th scope="col">Raw</th><th scope="col">Normalized</th><th scope="col">Normalization</th><th scope="col">Ambiguity</th></tr>
+      </thead>
+      <tbody>
+        {{ m.provenance_row('Invoice number', invoice.invoice_number) }}
+        {% if invoice.revision %}{{ m.provenance_row('Revision', invoice.revision) }}{% endif %}
+        {{ m.provenance_row('Vendor', invoice.vendor) }}
+        {{ m.provenance_row('Invoice date', invoice.invoice_date) }}
+        {{ m.provenance_row('Due date', invoice.due_date) }}
+        {{ m.provenance_row('Payment terms', invoice.payment_terms) }}
+        {{ m.provenance_row('Currency', invoice.currency) }}
+      </tbody>
+    </table>
+  </div>
+  {% if invoice.missing_fields %}
+    <h3>Missing fields</h3>
+    <ul class="amber">{% for item in invoice.missing_fields %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if invoice.conflicts %}
+    <h3>Conflicts</h3>
+    <ul class="amber">{% for item in invoice.conflicts %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if invoice.extraction_notes %}
+    <h3>Extraction notes</h3>
+    <ul class="plain dim">{% for item in invoice.extraction_notes %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+{% endmacro %}
+
+{% macro lines_section(invoice, line_deltas) %}
+<section class="card" id="lines">
+  <h2>Line items</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <caption>Declared versus calculated line totals; nonzero deltas show the exact stored difference</caption>
+      <thead>
+        <tr>
+          <th scope="col">Line</th>
+          <th scope="col">Raw item</th>
+          <th scope="col">SKU</th>
+          <th scope="col" class="num">Qty</th>
+          <th scope="col" class="num">Unit price</th>
+          <th scope="col" class="num">Declared total</th>
+          <th scope="col" class="num">Calculated total</th>
+          <th scope="col" class="num">&Delta;</th>
+          <th scope="col">Evidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in invoice.lines %}
+        <tr>
+          <th scope="row" class="mono">{{ line.line_id }}</th>
+          <td>
+            <span class="mono">{{ line.raw_item }}</span>
+            {% if line.normalized_item and line.normalized_item != line.raw_item %}
+              <div class="dim small">normalized: {{ line.normalized_item }}</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if line.canonical_sku %}<span class="mono">{{ line.canonical_sku }}</span>
+            {% elif line.candidate_skus %}<span class="text-warn small">unmapped; suggestions: {{ line.candidate_skus|join(', ') }} (suggestion only - not a mapping)</span>
+            {% else %}<span class="dim">-</span>{% endif %}
+          </td>
+          <td class="num mono" title="raw: {{ line.raw_quantity }}">{{ line.quantity }}</td>
+          <td class="num mono" title="raw: {{ line.raw_unit_price }}">{{ line.unit_price|fmt_amount }}</td>
+          <td class="num mono">{% if line.declared_line_total is not none %}{{ line.declared_line_total|fmt_amount }}{% else %}<span class="dim">-</span>{% endif %}</td>
+          <td class="num mono">{{ line.calculated_line_total|fmt_amount }}</td>
+          {{ m.delta_cell(line_deltas.get(line.line_id) if line_deltas else none) }}
+          <td>{{ m.evidence_refs(line.evidence) }}</td>
+        </tr>
+        {% if line.ambiguity %}
+        <tr class="line-note">
+          <td></td>
+          <td colspan="8"><ul class="amber small">{% for note in line.ambiguity %}<li>{{ note }}</li>{% endfor %}</ul></td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endmacro %}
+
+{% macro identity_section(candidates, current_hash) %}
+<section class="card" id="identity">
+  <h2>Identity</h2>
+  {% if candidates %}
+  <div class="table-wrap">
+    <table class="data">
+      <caption>Prior cases sharing this invoice number or vendor, with the recorded relationship</caption>
+      <thead>
+        <tr>
+          <th scope="col">Relationship</th>
+          <th scope="col">Prior case</th>
+          <th scope="col">Invoice #</th>
+          <th scope="col">Vendor</th>
+          <th scope="col">Format</th>
+          <th scope="col">Revision</th>
+          <th scope="col">Bytes</th>
+          <th scope="col">Explanation</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for candidate in candidates %}
+        <tr>
+          <th scope="row"><span class="badge tone-{{ 'pause' if candidate.relationship in ('EXACT_ARTIFACT', 'DUPLICATE_REPRESENTATION') else 'warn' }}">{{ candidate.relationship }}</span></th>
+          <td><a class="mono" href="/cases/{{ candidate.case_id }}">{{ candidate.case_id|middle }}</a></td>
+          <td class="mono">{{ candidate.invoice_number or '-' }}</td>
+          <td>{{ candidate.vendor or '-' }}</td>
+          <td>{{ m.format_chip(candidate.source_format) }}</td>
+          <td class="mono">{{ candidate.revision or '-' }}</td>
+          <td>{% if current_hash and candidate.source_hash == current_hash %}<span class="dim">same bytes</span>{% else %}<span class="dim">different bytes</span>{% endif %}</td>
+          <td>{{ candidate.explanation }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="dim">No identity candidates were recorded for this case.</p>
+  {% endif %}
+</section>
+{% endmacro %}
+
+{% macro inventory_section(comparisons, unresolved) %}
+<section class="card" id="inventory">
+  <h2>Inventory comparison</h2>
+  {% if comparisons %}
+  <div class="table-wrap">
+    <table class="data">
+      <caption>Aggregate requested quantity per SKU against authoritative available stock</caption>
+      <thead>
+        <tr>
+          <th scope="col">SKU</th>
+          <th scope="col">Raw items</th>
+          <th scope="col" class="num">Requested</th>
+          <th scope="col" class="num">Available</th>
+          <th scope="col">Status</th>
+          <th scope="col">Queried row</th>
+          <th scope="col">Explanation</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cmp in comparisons %}
+        <tr>
+          <th scope="row" class="mono">{{ cmp.sku or '-' }}</th>
+          <td class="mono small">{{ cmp.raw_items|join(', ') }}</td>
+          <td class="num mono">{{ cmp.requested_quantity }}</td>
+          <td class="num mono">{% if cmp.available_stock is not none %}{{ cmp.available_stock }}{% else %}<span class="dim">-</span>{% endif %}</td>
+          <td>{{ m.inventory_badge(cmp.status) }}</td>
+          <td class="mono small">{% if cmp.queried_row %}{{ cmp.queried_row.sku }} / {{ cmp.queried_row.item_name }} / stock {{ cmp.queried_row.available_stock }}{% else %}<span class="dim">no row</span>{% endif %}</td>
+          <td>{{ cmp.explanation }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="dim">No inventory comparison was recorded for this case.</p>
+  {% endif %}
+  {% if unresolved %}
+  <h3>Unresolved lookups</h3>
+  {% for item, lookup in unresolved.items() %}
+    <p class="small">
+      <span class="mono">{{ item }}</span> - {{ m.inventory_badge(lookup.status) }}
+      {% if lookup.error %}<span class="text-warn">{{ lookup.error }}</span>{% endif %}
+      {% if lookup.candidates %}
+        {% for cand in lookup.candidates %}
+          <span class="chip" title="suggestion only - not a mapping">{{ cand.sku }} ({{ cand.item_name }}, stock {{ cand.available_stock }})</span>
+        {% endfor %}
+        <span class="text-warn small">suggestion only - not a mapping</span>
+      {% endif %}
+    </p>
+  {% endfor %}
+  {% endif %}
+</section>
+{% endmacro %}
+
+{% macro financial_section(financial, suspicious, unavailable) %}
+<section class="card" id="financial">
+  <h2>Financial recomputation</h2>
+  {% if financial %}
+  <div class="table-wrap">
+    <table class="data">
+      <caption>Declared versus recomputed Decimal totals, with stored deltas</caption>
+      <thead>
+        <tr><th scope="col">Amount</th><th scope="col" class="num">Declared</th><th scope="col" class="num">Calculated</th><th scope="col" class="num">&Delta;</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Subtotal</th>
+          <td class="num mono">{% if financial.declared_subtotal is not none %}{{ financial.declared_subtotal|fmt_amount }}{% else %}<span class="dim">-</span>{% endif %}</td>
+          <td class="num mono">{{ financial.calculated_subtotal|fmt_amount }}</td>
+          {{ m.delta_cell(financial.subtotal_delta) }}
+        </tr>
+        <tr>
+          <th scope="row">Tax</th>
+          <td class="num mono">{% if financial.declared_tax is not none %}{{ financial.declared_tax|fmt_amount }}{% else %}<span class="dim">-</span>{% endif %}</td>
+          <td class="num mono">{{ financial.calculated_tax|fmt_amount }}</td>
+          {{ m.delta_cell(financial.tax_delta) }}
+        </tr>
+        <tr>
+          <th scope="row">Fees</th>
+          <td class="num dim">-</td>
+          <td class="num mono">{{ financial.calculated_fees|fmt_amount }}</td>
+          <td class="num dim">-</td>
+        </tr>
+        <tr>
+          <th scope="row">Total</th>
+          <td class="num mono">{% if financial.declared_total is not none %}{{ financial.declared_total|fmt_amount }}{% else %}<span class="dim">-</span>{% endif %}</td>
+          <td class="num mono">{{ financial.calculated_total|fmt_amount }}</td>
+          {{ m.delta_cell(financial.total_delta) }}
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="small"><strong>Tax basis:</strong> {{ financial.tax_basis }}</p>
+  <p class="small dim">Recomputation exact: {{ 'yes' if financial.exact else 'no' }}; tax recomputable: {{ 'yes' if financial.tax_recomputable else 'no' }}.</p>
+  {% else %}
+  <p class="dim">No financial recomputation was recorded for this case.</p>
+  {% endif %}
+  {% if suspicious %}
+    <h3>Suspicious signals</h3>
+    <ul class="amber">{% for signal in suspicious %}<li>{{ signal }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if unavailable %}
+    <h3>Reconciliations not performed</h3>
+    <p class="small dim">These checks are unavailable to the system and did not happen:</p>
+    <ul class="plain">{% for item in unavailable %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+{% endmacro %}
+
+{% macro dates_section(dates) %}
+{% if dates %}
+<section class="card" id="dates">
+  <h2>Date assessment</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <caption>Raw date strings and how each parsed</caption>
+      <thead>
+        <tr><th scope="col">Field</th><th scope="col">Raw</th><th scope="col">Parsed</th><th scope="col">Status</th><th scope="col">Explanation</th></tr>
+      </thead>
+      <tbody>
+        {% for date in dates %}
+        <tr>
+          <th scope="row">{{ date.field }}</th>
+          <td class="mono">{% if date.raw_value is not none %}{{ date.raw_value }}{% else %}<span class="dim">-</span>{% endif %}</td>
+          <td class="mono">{% if date.parsed_date %}{{ date.parsed_date }}{% else %}<span class="dim">-</span>{% endif %}</td>
+          <td>{{ m.date_badge(date.status) }}</td>
+          <td>{{ date.explanation }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endmacro %}
+
+{% macro critique_section(critique) %}
+<section class="card" id="critique">
+  <h2>Critique <span class="dim small">(independent critic)</span></h2>
+  {% if critique %}
+  <dl class="kv">
+    <dt>Recommended disposition</dt><dd>{{ m.decision_badge(critique.recommended_disposition) }}</dd>
+  </dl>
+  {% if critique.supported_findings %}
+    <h3>Supported findings</h3>
+    <ul class="plain">{% for item in critique.supported_findings %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if critique.challenged_findings %}
+    <h3>Challenged findings</h3>
+    <ul class="amber">{% for item in critique.challenged_findings %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if critique.missing_evidence %}
+    <h3>Missing evidence</h3>
+    <ul class="amber">{% for item in critique.missing_evidence %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if critique.requested_follow_up %}
+    <h3>Requested follow-up</h3>
+    <ul class="plain">{% for item in critique.requested_follow_up %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if critique.rationale %}
+    <h3>Rationale</h3>
+    <ul class="plain">{% for item in critique.rationale %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% else %}
+  <p class="dim">The critic did not record a result for this case.</p>
+  {% endif %}
+</section>
+{% endmacro %}

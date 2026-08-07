@@ -1,0 +1,196 @@
+{% extends 'base.html' %}
+{% import '_macros.html' as m %}
+{% import '_evidence.html' as ev %}
+
+{% block title %}{{ header.invoice_number or header.case_id }} - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+<section class="card" id="case-header">
+  <div class="spread">
+    <div>
+      <h1>{{ header.invoice_number or '(missing invoice number)' }}
+        {% if header.vendor %}<span class="dim">&mdash; {{ header.vendor }}</span>{% endif %}</h1>
+      <div class="row">
+        {{ m.status_badge(header.status) }}
+        {% if result and result.final_decision %}{{ m.decision_badge(result.final_decision.decision) }}{% endif %}
+        {% if result and result.payment %}{{ m.payment_badge(result.payment.status) }} <span class="dim small">mock payment</span>{% endif %}
+        {% if header.revision %}<span class="chip">revision {{ header.revision }}</span>{% endif %}
+        {% if invoice %}{{ m.format_chip(invoice.source.source_format) }}{% endif %}
+      </div>
+      <p class="small">Stop reason: <span class="mono">{{ header.stop_reason or '-' }}</span></p>
+    </div>
+    <div class="small">
+      <dl class="kv">
+        <dt>Case ID</dt><dd>{{ m.mono_id(header.case_id, 'case ID') }}</dd>
+        {% if header.source_id %}<dt>Source ID</dt><dd>{{ m.mono_id(header.source_id, 'source ID') }}</dd>{% endif %}
+        <dt>Started</dt><dd class="mono">{{ header.started_at|fmt_dt }}</dd>
+        <dt>Finished</dt><dd class="mono">{% if header.finished_at %}{{ header.finished_at|fmt_dt }}{% else %}-{% endif %}</dd>
+        <dt>Duration</dt><dd class="mono">{{ fmt_duration(header.started_at, header.finished_at) }}</dd>
+        {% if header.has_result %}
+        <dt>Raw result</dt><dd><a href="/cases/{{ header.case_id }}/result.json">{{ result_file }}</a></dd>
+        {% endif %}
+      </dl>
+    </div>
+  </div>
+
+  {% if running %}
+  <p class="stream-note pulsing no-print">This case is running right now &mdash;
+    <a href="/cases/{{ header.case_id }}/live">watch it live</a>.</p>
+  {% endif %}
+  {% if run_error %}
+  <p class="text-fail small">Background run error (verbatim): {{ run_error }}</p>
+  {% endif %}
+  {% if review and review.status == 'PENDING' %}
+  <p class="stream-note no-print">This case is waiting for a human decision &mdash;
+    <a href="/reviews/{{ review.review_id }}">open the review package</a>.</p>
+  {% endif %}
+
+  {% if result and result.usage %}
+  <p class="small dim" id="usage-strip">
+    Usage: {{ result.usage.prompt_tokens }} prompt + {{ result.usage.completion_tokens }} completion tokens ·
+    {{ result.usage.model_calls }} model calls · {{ result.usage.tool_calls }} tool calls ·
+    {{ result.usage.retries }} retries · {{ (result.usage.latency_ms / 1000)|round(1) }}s model latency
+  </p>
+  {% endif %}
+</section>
+
+{% if result and result.errors and header.status in ('FAILED', 'INCOMPLETE') %}
+<section class="error-list" id="errors">
+  <h2>Errors</h2>
+  {% for error in result.errors %}
+  <div class="entry">
+    <div><span class="badge tone-fail">{{ error.category }}</span>
+      {% if error.stop_reason %}<span class="mono small">{{ error.stop_reason }}</span>{% endif %}</div>
+    <p class="small">{{ error.message }}</p>
+    {% if error.provider_request_id %}<p class="small dim">provider request ID: <span class="mono">{{ error.provider_request_id }}</span></p>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if invoice %}
+  {{ ev.source_section(invoice.source) }}
+  {{ ev.extraction_section(invoice) }}
+  {{ ev.lines_section(invoice, line_deltas) }}
+{% else %}
+<section class="card">
+  <h2>Source &amp; extraction</h2>
+  <p class="dim">No extraction is persisted for this case; the failure above happened before evidence could be recorded.</p>
+</section>
+{% endif %}
+
+{{ ev.identity_section(identity, invoice.source.sha256 if invoice else none) }}
+
+{{ ev.inventory_section(inventory_cmp.get('comparisons') or (risk.inventory if risk else []), inventory_cmp.get('unresolved_candidates')) }}
+
+{{ ev.financial_section(risk.financial if risk else none, risk.suspicious_signals if risk else [], risk.unavailable_reconciliations if risk else []) }}
+
+{{ ev.dates_section(risk.dates if risk else []) }}
+
+{{ ev.critique_section(critique) }}
+
+<section class="card" id="review">
+  <h2>Review &amp; human decision</h2>
+  {% if review %}
+  <div class="row">
+    {{ m.review_badge(review.status) }}
+    <a class="mono" href="/reviews/{{ review.review_id }}">{{ review.review_id }}</a>
+    <span class="dim small">cycle {{ review.sequence }}</span>
+  </div>
+  <h3>Review reasons</h3>
+  <ul class="plain">{% for reason in review.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+  <h3>Questions for the reviewer</h3>
+  <ol class="questions">{% for question in review.questions %}<li>{{ question }}</li>{% endfor %}</ol>
+  <p class="small">Agent recommendation: {{ m.decision_badge(review.agent_recommendation) }}</p>
+  {% if review.agent_rationale %}
+  <ul class="plain small">{% for item in review.agent_rationale %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if review.human_decision %}
+  <h3>Human outcome</h3>
+  <dl class="kv">
+    <dt>Reviewer</dt><dd>{{ review.human_decision.reviewer }}</dd>
+    <dt>Decision</dt><dd>{{ m.human_badge(review.human_decision.decision) }}</dd>
+    <dt>Reason</dt><dd>{{ review.human_decision.reason }}</dd>
+    <dt>Decided</dt><dd class="mono">{{ review.human_decision.decided_at|fmt_dt }}</dd>
+    {% if review.human_decision.mappings %}
+    <dt>Mappings</dt>
+    <dd>{% for mapping in review.human_decision.mappings %}<div><span class="mono">{{ mapping.raw_item }}</span> &rarr; <span class="mono">{{ mapping.sku }}</span> <span class="dim small">({{ mapping.basis }})</span></div>{% endfor %}</dd>
+    {% endif %}
+    {% if review.human_decision.superseded_case_id %}
+    <dt>Supersedes</dt><dd><a class="mono" href="/cases/{{ review.human_decision.superseded_case_id }}">{{ review.human_decision.superseded_case_id }}</a></dd>
+    {% endif %}
+  </dl>
+  {% elif review.status == 'PENDING' %}
+  <p class="dim">No human decision yet. <a href="/reviews/{{ review.review_id }}">Decide in the review package.</a></p>
+  {% endif %}
+  {% else %}
+  <p class="dim">This case did not require human review.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="payment">
+  <h2>Payment <span class="dim small">(mock &mdash; no real funds move)</span></h2>
+  {% if result and result.payment %}
+  <dl class="kv">
+    <dt>Status</dt><dd>{{ m.payment_badge(result.payment.status) }}</dd>
+    <dt>Payment ID</dt><dd>{% if result.payment.payment_id %}{{ m.mono_id(result.payment.payment_id, 'payment ID') }}{% else %}<span class="dim">-</span>{% endif %}</dd>
+    <dt>Idempotency key</dt><dd>{{ m.mono_trunc(result.payment.idempotency_key, 'idempotency key') }}</dd>
+    <dt>Amount</dt><dd>{% if result.payment.amount %}{{ m.money(result.payment.amount.amount, result.payment.amount.currency) }}{% else %}<span class="dim">-</span>{% endif %}</dd>
+    <dt>Vendor</dt><dd>{{ result.payment.vendor or '-' }}</dd>
+    <dt>Processed</dt><dd class="mono">{% if result.payment.processed_at %}{{ result.payment.processed_at|fmt_dt }}{% else %}-{% endif %}</dd>
+    {% if result.payment.duplicate_of %}
+    <dt>Duplicate of</dt>
+    <dd><span class="mono">{{ result.payment.duplicate_of }}</span>
+      {% if duplicate_case %}&mdash; prior transaction on <a class="mono" href="/cases/{{ duplicate_case }}">{{ duplicate_case|middle }}</a>{% endif %}
+      <span class="dim small">the attempt returned the prior transaction; no second payment was made</span></dd>
+    {% endif %}
+    {% if result.payment.error %}<dt>Error</dt><dd class="text-fail">{{ result.payment.error }}</dd>{% endif %}
+  </dl>
+  {% else %}
+  <p class="dim">No payment attempt is recorded for this case.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="events">
+  <details class="section-box">
+    <summary>Event timeline ({{ events|length }} events) &mdash; the audit trail, rendered, not reinterpreted</summary>
+    <div class="table-wrap">
+      <table class="data">
+        <caption>Every persisted event in insertion order</caption>
+        <thead>
+          <tr>
+            <th scope="col">#</th>
+            <th scope="col">Time</th>
+            <th scope="col">Event type</th>
+            <th scope="col">Agent</th>
+            <th scope="col">Correlation</th>
+            <th scope="col">Payload</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in events %}
+          <tr>
+            <th scope="row" class="mono">{{ event.seq }}</th>
+            <td class="mono small">{{ event.created_at|fmt_dt }}</td>
+            <td class="mono small">{{ event.event_type }}</td>
+            <td>{% if event.agent_name %}{{ m.agent_chip(event.agent_name) }}{% else %}<span class="dim">-</span>{% endif %}</td>
+            <td class="small">
+              {% if event.tool_call_id %}<span class="chip locator" title="tool call">{{ event.tool_call_id|middle }}</span>{% endif %}
+              {% if event.review_id %}<span class="chip locator" title="review">{{ event.review_id|middle }}</span>{% endif %}
+              {% if event.payment_id %}<span class="chip locator" title="payment">{{ event.payment_id|middle }}</span>{% endif %}
+              {% if event.db_evidence_id %}<span class="chip locator" title="evidence record">{{ event.db_evidence_id|middle }}</span>{% endif %}
+              {% if event.provider_request_id %}<span class="chip locator" title="provider request">{{ event.provider_request_id|middle }}</span>{% endif %}
+            </td>
+            <td>{{ m.json_disclosure(event.payload_json) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+{% endblock %}
+
+{% block cli_hint %}
+CLI equivalent: <code>uv run invoice-agents case status {{ header.case_id }}</code>
+{% endblock %}

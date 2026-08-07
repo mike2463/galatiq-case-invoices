@@ -1,0 +1,86 @@
+{# Server-rendered component inventory (UI plan §5.2). Every badge carries its
+   literal status word; tones come from server.tone(), never client logic. #}
+
+{% macro status_badge(value) -%}
+  {%- if value %}<span class="badge tone-{{ tone('case', value) }}">{{ value }}</span>{% else %}<span class="dim">-</span>{% endif -%}
+{%- endmacro %}
+
+{% macro decision_badge(value) -%}
+  {%- if value %}<span class="badge tone-{{ tone('decision', value) }}">{{ value }}</span>{% else %}<span class="dim">-</span>{% endif -%}
+{%- endmacro %}
+
+{% macro payment_badge(value) -%}
+  {%- if value %}<span class="badge tone-{{ tone('payment', value) }}">{{ value }}</span>{% else %}<span class="dim">-</span>{% endif -%}
+{%- endmacro %}
+
+{% macro human_badge(value) -%}
+  {%- if value %}<span class="badge tone-{{ tone('human', value) }}">{{ value }}</span>{% else %}<span class="dim">-</span>{% endif -%}
+{%- endmacro %}
+
+{% macro review_badge(value) -%}
+  {%- if value %}<span class="badge tone-{{ tone('review', value) }}">{{ value }}</span>{% else %}<span class="dim">-</span>{% endif -%}
+{%- endmacro %}
+
+{% macro inventory_badge(value) -%}
+  {%- if value %}<span class="badge tone-{{ tone('inventory', value) }}">{{ value }}</span>{% else %}<span class="dim">-</span>{% endif -%}
+{%- endmacro %}
+
+{% macro date_badge(value) -%}
+  {%- if value %}<span class="badge tone-{{ tone('date', value) }}">{{ value }}</span>{% else %}<span class="dim">-</span>{% endif -%}
+{%- endmacro %}
+
+{% macro format_chip(value) -%}
+  {%- if value %}<span class="chip mono">{{ value }}</span>{% else %}<span class="dim">-</span>{% endif -%}
+{%- endmacro %}
+
+{% macro agent_chip(name) -%}
+  <span class="chip agent">{{ name }}</span>
+{%- endmacro %}
+
+{% macro copy_btn(value, label='value') -%}
+  <button type="button" class="copy" data-copy="{{ value }}" aria-label="Copy {{ label }}">copy</button>
+{%- endmacro %}
+
+{% macro mono_id(value, label='ID') -%}
+  <span class="mono">{{ value }}</span> {{ copy_btn(value, label) }}
+{%- endmacro %}
+
+{% macro mono_trunc(value, label='value') -%}
+  <span class="mono" title="{{ value }}">{{ value|middle }}</span> {{ copy_btn(value, label) }}
+{%- endmacro %}
+
+{% macro money(amount, currency) -%}
+  {%- if amount is not none and amount != '' -%}
+    <span class="mono">{{ amount|fmt_amount }}{% if currency %} {{ currency }}{% endif %}</span>
+  {%- else -%}<span class="dim">-</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro delta_cell(value) -%}
+  {%- if value is none or value == '' -%}
+    <td class="num dim">-</td>
+  {%- elif value|nonzero -%}
+    <td class="num delta-bad">{{ value|fmt_signed }}</td>
+  {%- else -%}
+    <td class="num delta-zero">{{ value|fmt_amount }}</td>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro json_disclosure(value, label='payload JSON') -%}
+  <details class="json-box"><summary>{{ label }}</summary><pre class="json">{{ value|json_pretty }}</pre></details>
+{%- endmacro %}
+
+{% macro evidence_refs(refs) -%}
+  {%- for ref in refs or [] -%}
+    <span class="chip locator" title="{{ ref.raw_value or '' }}">{{ ref.locator_type }}:{{ ref.locator }}</span>
+  {%- endfor -%}
+{%- endmacro %}
+
+{% macro provenance_row(field, ev) -%}
+<tr>
+  <th scope="row">{{ field }}</th>
+  <td class="mono">{% if ev.raw_value is not none %}{{ ev.raw_value }}{% else %}<span class="dim">-</span>{% endif %}</td>
+  <td class="mono">{% if ev.normalized_value is not none %}{{ ev.normalized_value }}{% else %}<span class="dim">-</span>{% endif %}</td>
+  <td class="dim">{{ ev.normalization }}</td>
+  <td>{% if ev.ambiguity %}<span class="text-warn">{{ ev.ambiguity }}</span>{% else %}<span class="dim">-</span>{% endif %}</td>
+</tr>
+{%- endmacro %}

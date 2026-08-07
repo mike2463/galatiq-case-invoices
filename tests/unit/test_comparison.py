@@ -1,0 +1,122 @@
+"""Inventory aggregation, exact alias policy, arithmetic, identity, and risk tests."""
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
+
+from invoice_agents.config import Settings
+from invoice_agents.db.store import WorkflowStore
+from invoice_agents.models import IdentityRelationship, InventoryStatus, ToolStatus
+from invoice_agents.tools.comparison import (
+    InventoryReader,
+    build_risk_assessment,
+    compare_inventory,
+    compute_invoice_totals,
+    find_prior_invoice_candidates,
+)
+from invoice_agents.tools.evidence import extract_invoice_evidence, get_source_metadata
+
+
+def invoice(invoice_dir: Path, name: str):  # type: ignore[no-untyped-def]
+    return extract_invoice_evidence(get_source_metadata(invoice_dir / name))
+
+
+def test_stock_excess_unknown_and_negative(invoice_dir: Path, inventory_db: Path) -> None:
+    reader = InventoryReader(inventory_db)
+    excess, _ = compare_inventory(invoice(invoice_dir, "invoice_1002.txt"), reader)
+    assert excess[0].status is InventoryStatus.EXCEEDS_STOCK
+    assert excess[0].queried_row is not None
+    unknown, _ = compare_inventory(invoice(invoice_dir, "invoice_1016.json"), reader)
+    assert unknown[-1].status is InventoryStatus.UNKNOWN
+    negative, _ = compare_inventory(invoice(invoice_dir, "invoice_1009.json"), reader)
+    assert negative[0].status is InventoryStatus.INVALID_QUANTITY
+
+
+def test_repeated_skus_are_aggregated_before_stock(invoice_dir: Path, inventory_db: Path) -> None:
+    comparisons, _ = compare_inventory(
+        invoice(invoice_dir, "invoice_1013.json"), InventoryReader(inventory_db)
+    )
+    quantities = {item.sku: item.requested_quantity for item in comparisons}
+    assert quantities == {
+        "SKU-WIDGET-A": Decimal("22"),
+        "SKU-WIDGET-B": Decimal("18"),
+        "SKU-GADGET-X": Decimal("9"),
+    }
+    assert all(item.status is InventoryStatus.EXCEEDS_STOCK for item in comparisons)
+
+
+def test_candidates_never_become_implicit_aliases(invoice_dir: Path, inventory_db: Path) -> None:
+    comparisons, unresolved = compare_inventory(
+        invoice(invoice_dir, "invoice_1010.txt"), InventoryReader(inventory_db)
+    )
+    rush = comparisons[-1]
+    assert rush.sku is None
+    assert rush.status is InventoryStatus.AMBIGUOUS
+    assert unresolved["WidgetA (rush order)"].candidates
+
+
+def test_sql_error_is_not_not_found(tmp_path: Path) -> None:
+    result = InventoryReader(tmp_path / "missing.db").lookup_inventory_exact("WidgetA")
+    assert result.status is ToolStatus.ERROR
+    assert result.error
+
+
+def test_financial_discrepancies_match_known_fixtures(invoice_dir: Path) -> None:
+    inv_1007 = compute_invoice_totals(invoice(invoice_dir, "invoice_1007.csv"))
+    assert inv_1007.calculated_total == Decimal("15635.00")
+    assert inv_1007.total_delta == Decimal("110.00")
+    inv_1013 = compute_invoice_totals(invoice(invoice_dir, "invoice_1013.json"))
+    assert inv_1013.calculated_total == Decimal("22512.80")
+    assert inv_1013.total_delta == Decimal("-50.00")
+    inv_1009 = compute_invoice_totals(invoice(invoice_dir, "invoice_1009.json"))
+    assert inv_1009.subtotal_delta == Decimal("-1250.00")
+
+
+def test_identity_representation_and_revision(invoice_dir: Path, workflow_db: Path) -> None:
+    store = WorkflowStore(workflow_db)
+    first = invoice(invoice_dir, "invoice_1011.txt")
+    store.register_source(first.source)
+    store.create_case("case_first", first.source, datetime.now(UTC))
+    store.save_extraction("case_first", first)
+    second = invoice(invoice_dir, "invoice_1011.pdf")
+    store.register_source(second.source)
+    store.create_case("case_second", second.source, datetime.now(UTC))
+    store.save_extraction("case_second", second)
+    candidates = find_prior_invoice_candidates("case_second", second, store)
+    assert candidates[0].relationship is IdentityRelationship.DUPLICATE_REPRESENTATION
+
+    original = invoice(invoice_dir, "invoice_1004.json")
+    store.register_source(original.source)
+    store.create_case("case_original", original.source, datetime.now(UTC))
+    store.save_extraction("case_original", original)
+    revised = invoice(invoice_dir, "invoice_1004_revised.json")
+    store.register_source(revised.source)
+    store.create_case("case_revised", revised.source, datetime.now(UTC))
+    store.save_extraction("case_revised", revised)
+    revision_candidates = find_prior_invoice_candidates("case_revised", revised, store)
+    assert any(
+        candidate.relationship is IdentityRelationship.POSSIBLE_REVISION
+        for candidate in revision_candidates
+    )
+
+
+def test_policy_triggers_high_dollar_non_usd_and_clean(
+    invoice_dir: Path, inventory_db: Path, settings: Settings
+) -> None:
+    reader = InventoryReader(inventory_db)
+    high = invoice(invoice_dir, "invoice_1002.txt")
+    high_inventory, _ = compare_inventory(high, reader)
+    high_risk = build_risk_assessment(
+        high, high_inventory, [], compute_invoice_totals(high), settings
+    )
+    assert any("policy threshold" in reason for reason in high_risk.policy_review_reasons)
+    eur = invoice(invoice_dir, "invoice_1014.xml")
+    eur_inventory, _ = compare_inventory(eur, reader)
+    eur_risk = build_risk_assessment(eur, eur_inventory, [], compute_invoice_totals(eur), settings)
+    assert any("no approved FX" in reason for reason in eur_risk.policy_review_reasons)
+    clean = invoice(invoice_dir, "invoice_1001.txt")
+    clean_inventory, _ = compare_inventory(clean, reader)
+    clean_risk = build_risk_assessment(
+        clean, clean_inventory, [], compute_invoice_totals(clean), settings
+    )
+    assert clean_risk.policy_review_reasons == []

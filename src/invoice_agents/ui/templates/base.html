@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Galatiq Invoice Console{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <nav aria-label="Primary">
+      <a href="/" class="brand">Galatiq Invoice Console</a>
+      <a href="/" {% if nav == 'dashboard' %}class="active" aria-current="page"{% endif %}>Dashboard</a>
+      <a href="/reviews" {% if nav == 'reviews' %}class="active" aria-current="page"{% endif %}>Reviews</a>
+      <a href="/submit" {% if nav == 'submit' %}class="active" aria-current="page"{% endif %}>Submit</a>
+      <a href="/system" {% if nav == 'system' %}class="active" aria-current="page"{% endif %}>System</a>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="cli-hint">
+    {% block cli_hint %}{% endblock %}
+  </footer>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

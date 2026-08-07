@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block title %}Batch - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="spread">
+    <h1>Batch run</h1>
+    <span class="mono small dim">{{ batch.batch_id }} · concurrency {{ batch.concurrency }}</span>
+  </div>
+  <p class="small dim">One row per submitted file. Statuses are read from storage as each case
+    finishes; per-case failures stay visible in place &mdash; there is no aggregate roll-up.</p>
+  <div id="batch-matrix"
+       hx-get="/batches/{{ batch.batch_id }}/rows"
+       hx-trigger="every 2s"
+       hx-swap="innerHTML">
+    {% include '_batch_rows.html' %}
+  </div>
+</section>
+{% endblock %}
+
+{% block cli_hint %}
+CLI equivalent: <code>uv run invoice-agents batch --invoice-dir data/invoices --concurrency {{ batch.concurrency }}</code>
+{% endblock %}

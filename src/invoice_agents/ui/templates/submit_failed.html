@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% import '_macros.html' as m %}
+
+{% block title %}Preparation failed - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+<h1>Preparation failed</h1>
+
+<section class="error-list">
+  <h2>{{ result.status }} &mdash; <span class="mono">{{ result.stop_reason }}</span></h2>
+  {% for error in result.errors %}
+  <div class="entry">
+    <div><span class="badge tone-fail">{{ error.category }}</span>
+      {% if error.stop_reason %}<span class="mono small">{{ error.stop_reason }}</span>{% endif %}</div>
+    <p class="small">{{ error.message }}</p>
+  </div>
+  {% endfor %}
+</section>
+
+<section class="card">
+  <dl class="kv">
+    <dt>Source</dt><dd class="mono">{{ source_path }}</dd>
+    <dt>Case ID</dt><dd>{{ m.mono_id(result.case_id, 'case ID') }}</dd>
+    <dt>Full result</dt><dd class="mono">artifacts/results/{{ result.case_id }}.json</dd>
+  </dl>
+  <p class="small dim">The failure was recorded before any model call; nothing was retried or repaired.</p>
+  <p>
+    {% if case_exists %}<a class="btn" href="/cases/{{ result.case_id }}">Open case record</a>{% endif %}
+    <a class="btn" href="/submit">Back to submit</a>
+  </p>
+</section>
+{% endblock %}

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "invoice-console",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "invoice-agents", "ui", "--host", "127.0.0.1", "--port", "8787"],
+      "port": 8787
+    },
+    {
+      "name": "invoice-console-alt",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "invoice-agents", "ui", "--host", "127.0.0.1", "--port", "8791"],
+      "port": 8791
+    }
+  ]
+}

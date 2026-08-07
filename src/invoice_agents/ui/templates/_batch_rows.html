@@ -1,0 +1,58 @@
+{% import '_macros.html' as m %}
+<div class="table-wrap">
+  <table class="data">
+    <caption>
+      {{ batch.entries|length }} file{{ '' if batch.entries|length == 1 else 's' }} ·
+      {% if batch.running %}<span class="text-accent">running</span>{% else %}finished{% endif %}
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Case</th>
+        <th scope="col">Run</th>
+        <th scope="col">Status</th>
+        <th scope="col">Stop reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr {% if row.header %}data-href="/cases/{{ row.entry.case_id }}"{% endif %}>
+        <th scope="row" class="mono small">{{ row.entry.path.name }}</th>
+        <td>
+          {% if row.header %}
+            <a class="mono small" href="/cases/{{ row.entry.case_id }}">{{ row.entry.case_id|middle }}</a>
+          {% else %}
+            <span class="dim small" title="preparation failed before a case row could be persisted">{{ row.entry.case_id|middle }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.run_state == 'queued' %}<span class="badge tone-pause">QUEUED</span>
+          {% elif row.run_state == 'running' %}<span class="badge tone-accent pulsing">RUNNING</span>
+          {% else %}<span class="dim small">-</span>{% endif %}
+        </td>
+        <td>
+          {% if row.run_state in ('queued', 'running') %}
+            <span class="dim small">pending</span>
+          {% elif row.header %}
+            {{ m.status_badge(row.header.status) }}
+          {% elif row.entry.result %}
+            {{ m.status_badge(row.entry.result.status) }}
+          {% else %}
+            <span class="dim">-</span>
+          {% endif %}
+        </td>
+        <td class="mono small">
+          {% if row.run_state in ('queued', 'running') %}
+            <span class="dim">-</span>
+          {% elif row.header %}
+            {{ row.header.stop_reason or '-' }}
+          {% elif row.entry.result %}
+            {{ row.entry.result.stop_reason }}
+          {% else %}-{% endif %}
+          {% if row.run_error %}<div class="text-fail">{{ row.run_error }}</div>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

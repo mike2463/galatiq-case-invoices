@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% import '_macros.html' as m %}
+{% import '_preflight.html' as pf %}
+
+{% block title %}Dashboard - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+{{ pf.strip(preflight) }}
+
+<div class="tiles">
+  {% for status in statuses %}
+  <a class="tile" href="/?status={{ status }}">
+    <span class="count">{{ counts.get(status, 0) }}</span>
+    <span class="label"><span class="badge tone-{{ tone('case', status) }}">{{ status }}</span></span>
+  </a>
+  {% endfor %}
+  <a class="tile" href="/reviews">
+    <span class="count">{{ pending_reviews }}</span>
+    <span class="label"><span class="badge tone-{{ 'warn' if pending_reviews else 'pause' }}">PENDING REVIEWS</span></span>
+  </a>
+</div>
+
+<div class="spread">
+  <form class="filters" method="get" action="/"
+        hx-get="/" hx-target="#case-table-region" hx-swap="outerHTML" hx-push-url="true"
+        hx-trigger="change, input delay:300ms from:find input[type=search]">
+    <label class="inline">Status
+      <select name="status">
+        <option value="">all</option>
+        {% for status in statuses %}<option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="inline">Decision
+      <select name="decision">
+        <option value="">all</option>
+        {% for kind in ['APPROVE', 'REJECT', 'HOLD', 'FAILED'] %}<option value="{{ kind }}" {% if filters.decision == kind %}selected{% endif %}>{{ kind }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="inline">Format
+      <select name="fmt">
+        <option value="">all</option>
+        {% for format in formats %}<option value="{{ format }}" {% if filters.fmt == format %}selected{% endif %}>{{ format }}</option>{% endfor %}
+      </select>
+    </label>
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="Search invoice number or vendor ( / )" aria-label="Search invoice number or vendor">
+    <noscript><button type="submit">Filter</button></noscript>
+  </form>
+  <div class="row actions">
+    {% if preflight.ok %}
+      <a class="btn primary" href="/submit">Process invoice</a>
+      <a class="btn" href="/submit#batch">Run batch</a>
+    {% else %}
+      <a class="btn primary" aria-disabled="true" title="Preflight is failing; fix it first">Process invoice</a>
+      <a class="btn" aria-disabled="true" title="Preflight is failing; fix it first">Run batch</a>
+    {% endif %}
+  </div>
+</div>
+
+{% include '_case_table.html' %}
+{% endblock %}
+
+{% block cli_hint %}
+CLI equivalents: <code>uv run invoice-agents process --invoice-path FILE</code> ·
+<code>uv run invoice-agents batch --invoice-dir data/invoices</code> ·
+<code>uv run invoice-agents case status CASE_ID</code>
+{% endblock %}

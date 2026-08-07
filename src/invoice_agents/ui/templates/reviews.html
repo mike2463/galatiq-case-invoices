@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% import '_macros.html' as m %}
+
+{% block title %}Reviews - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+<div class="spread">
+  <h1>Review queue</h1>
+  <div class="row">
+    {% if show_all %}
+      <a class="btn" href="/reviews">Pending only</a>
+    {% else %}
+      <a class="btn" href="/reviews?all=1">Show all</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if reviews %}
+<div class="table-wrap card">
+  <table class="data">
+    <caption>{{ reviews|length }} review{{ '' if reviews|length == 1 else 's' }}; queued reviews older than {{ age_amber_hours }}h are flagged</caption>
+    <thead>
+      <tr>
+        <th scope="col">Review</th>
+        <th scope="col">Case</th>
+        <th scope="col">Cycle</th>
+        <th scope="col" class="num">Amount</th>
+        <th scope="col">Agent recommendation</th>
+        <th scope="col" class="num">Reasons</th>
+        <th scope="col">Age</th>
+        <th scope="col">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for review in reviews %}
+      {% set age_seconds = (now_utc - review.created_at).total_seconds() %}
+      {% set aging = review.status == 'PENDING' and age_seconds > age_amber_hours * 3600 %}
+      <tr data-href="/reviews/{{ review.review_id }}" tabindex="0">
+        <th scope="row"><a class="mono" href="/reviews/{{ review.review_id }}">{{ review.review_id|middle }}</a></th>
+        <td><a class="mono" href="/cases/{{ review.case_id }}">{{ review.case_id|middle }}</a></td>
+        <td class="num">{{ review.sequence }}</td>
+        <td class="num">{% if review.amount %}{{ m.money(review.amount.amount, review.amount.currency) }}{% else %}<span class="dim">-</span>{% endif %}</td>
+        <td>{{ m.decision_badge(review.agent_recommendation) }}</td>
+        <td class="num">{{ review.reasons|length }}</td>
+        <td class="{{ 'text-warn' if aging else 'dim' }}">
+          {{ fmt_duration(review.created_at, now_utc) }}
+          {% if aging %}<span class="badge tone-warn">AGING</span>{% endif %}
+        </td>
+        <td>{{ m.review_badge(review.status) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty card">
+  {% if show_all %}
+    No reviews have been recorded yet.
+  {% else %}
+    No pending reviews. Cases that stop for review will appear here; see all past reviews with
+    <a href="/reviews?all=1">Show all</a>.
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block cli_hint %}
+CLI equivalents: <code>uv run invoice-agents review list{{ ' --all' if show_all else '' }}</code> ·
+<code>uv run invoice-agents review show REVIEW_ID</code>
+{% endblock %}

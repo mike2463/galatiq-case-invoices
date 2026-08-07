@@ -1,0 +1,54 @@
+{% import '_macros.html' as m %}
+<div id="case-table-region">
+  {% if db_error %}
+  <div class="empty">
+    The workflow database cannot be read: <span class="mono text-fail">{{ db_error }}</span>.
+    The preflight strip above shows the exact stop reason and fix command.
+  </div>
+  {% elif rows %}
+  <div class="table-wrap">
+    <table class="data" id="case-table">
+      <caption>{{ rows|length }} case{{ '' if rows|length == 1 else 's' }}, newest first</caption>
+      <thead>
+        <tr>
+          <th scope="col">Invoice</th>
+          <th scope="col">Vendor</th>
+          <th scope="col">Format</th>
+          <th scope="col" class="num">Amount</th>
+          <th scope="col">Status</th>
+          <th scope="col">Decision</th>
+          <th scope="col">Payment</th>
+          <th scope="col">Started</th>
+          <th scope="col">Finished</th>
+          <th scope="col">Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr data-href="/cases/{{ row.case_id }}" tabindex="0">
+          <th scope="row"><a href="/cases/{{ row.case_id }}" class="mono">{{ row.invoice_number or '(missing)' }}</a></th>
+          <td>{{ row.vendor or '(missing)' }}</td>
+          <td>{{ m.format_chip(row.source_format) }}</td>
+          <td class="num">{{ m.money(row.declared_total, row.currency) }}</td>
+          <td>{{ m.status_badge(row.status) }}</td>
+          <td>{{ m.decision_badge(row.decision) }}</td>
+          <td>{{ m.payment_badge(row.payment_status) }}</td>
+          <td class="mono small">{{ row.started_at|fmt_dt }}</td>
+          <td class="mono small">{% if row.finished_at %}{{ row.finished_at|fmt_dt }}{% else %}<span class="dim">-</span>{% endif %}</td>
+          <td class="mono small">{{ fmt_duration(row.started_at, row.finished_at) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif filters.status or filters.decision or filters.fmt or filters.q %}
+  <div class="empty">
+    No cases match the current filters.
+  </div>
+  {% else %}
+  <div class="empty">
+    No cases yet. Process an invoice from <a href="/submit">Submit</a> or the terminal:
+    <pre class="cmd">uv run invoice-agents process --invoice-path data/invoices/invoice_1001.txt</pre>
+  </div>
+  {% endif %}
+</div>

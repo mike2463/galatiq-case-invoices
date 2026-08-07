@@ -1,119 +1,85 @@
-# Galatiq Case: Invoice Processing Automation
+# Galatiq Invoice Processing Agents
 
-## Background
+A local Python prototype for auditable invoice processing. A team of eight AI agents (AutoGen
+`Swarm`, powered by xAI `grok-4.5`) reads each invoice, checks it against a local inventory
+database, recomputes the money, and either approves it (recording an idempotent mock payment),
+rejects it, or stops and asks a human to decide. Every step is persisted for audit, and failures
+are transparent: a missing key, broken database, or invalid model output can never turn into an
+approval.
 
-Acme Corp is a PE-backed manufacturing firm losing **$2M/year** on manual invoice processing. Invoices arrive via email as PDFs in messy formats with frequent errors. Staff manually extract data, validate against a legacy inventory database (inconsistent), obtain VP approval (via email chains), and process payment (via a banking API).
+## Requirements
 
-**Current pain points:**
-- 30% error rate
-- 5-day processing delays
-- Frustrated stakeholders
+- Python 3.12 and [`uv`](https://docs.astral.sh/uv/)
+- An xAI API key with access to `grok-4.5` - processing invoices makes **paid** API calls
+- Network access to `https://api.x.ai/v1`; everything else runs locally
 
-## Objective
+## Run it
 
-Build a **multi-agent system** that automates the end-to-end invoice processing workflow. The system must run as a working prototype — not just designs or slides.
-
-## Workflow
-
-The system should handle four stages:
-
-1. **Ingestion** — Extract structured data from invoice documents (PDFs, text files). Fields include: Vendor, Amount, Items (with quantities), and Due Date. Expect unstructured text, typos, missing data, and potentially fraudulent entries.
-
-2. **Validation** — Verify extracted data against a mock inventory database (SQLite). Flag mismatches such as quantity exceeding available stock or items not found in inventory.
-
-3. **Approval** — Simulate VP-level review with rule-based decision-making (e.g., invoices over $10K require additional scrutiny). The agent should reason through approval/rejection with a reflection or critique loop.
-
-4. **Payment** — If approved, call a mock payment function. If rejected, log the rejection with reasoning.
-
-## Technical Requirements
-
-- **LLM Integration**: Use xAI's Grok as the core reasoning engine (via the xAI API at https://grok.x.ai). Other models are acceptable if you don't have an API key.
-- **Multi-Agent Orchestration**: Use a framework such as LangGraph, CrewAI, AutoGen, or a custom solution.
-- **Agent Capabilities**: Function calling / tool use, structured outputs, and self-correction loops.
-- **Runtime**: Assume no internet for external APIs — simulate everything locally.
-- **Tech Stack**: Python (preferred), with libraries like `langchain`, `crewai`, `autogen`, `pdfplumber`, `PyMuPDF`, etc. Run locally — no cloud deployment.
-
-## Provided Resources
-
-### Mock Invoice Data
-
-Sample invoices are provided in the `data/invoices/` directory in various formats (PDF, CSV, JSON, TXT). Use these as inputs for testing. The data intentionally includes a mix of clean entries and problematic ones — identifying and handling issues is part of the challenge.
-
-### Mock Inventory Database (Required Setup)
-
-Before running the system, you **must** create a local SQLite database that the validation agent will check invoices against. The sample invoices in `data/invoices/` reference specific items and quantities — your database needs to contain matching inventory records so the validation stage can flag mismatches, out-of-stock items, and unknown products.
-
-Below is a starter schema and seed data that covers the core items referenced across the provided invoices:
-
-```python
-import sqlite3
-
-conn = sqlite3.connect('inventory.db')  # Persist to file so all agents can access it
-cursor = conn.cursor()
-
-cursor.execute('CREATE TABLE IF NOT EXISTS inventory (item TEXT PRIMARY KEY, stock INTEGER)')
-cursor.execute("""
-    INSERT INTO inventory VALUES
-    ('WidgetA', 15),
-    ('WidgetB', 10),
-    ('GadgetX', 5),
-    ('FakeItem', 0)
-""")
-conn.commit()
+```powershell
+uv sync --python 3.12 --extra dev --extra ui
+Copy-Item .env.example .env    # then set XAI_API_KEY in .env
+uv run invoice-agents ui
 ```
 
-**Why this matters:** The sample invoices are designed to test your validation logic against this database. For example:
+The last command brings everything up: it creates, migrates, and seeds both SQLite databases
+(idempotent, so it is safe on every start) and serves the web console at
+<http://127.0.0.1:8787>. Use `--port` to change the port and `--no-init-db` to skip database
+setup. The server is localhost-only by design.
 
-| Scenario | Invoice | What should happen |
-|---|---|---|
-| Normal order within stock | INV-1001, INV-1004, INV-1006 | Items found, quantities valid — passes validation |
-| Quantity exceeds stock | INV-1002 (requests 20× GadgetX, only 5 in stock) | Flagged as stock mismatch |
-| Fraudulent / zero-stock item | INV-1003 (references FakeItem, 0 stock) | Flagged as out of stock or suspicious |
-| Item not in database at all | INV-1008 (SuperGizmo, MegaSprocket), INV-1016 (WidgetC) | Flagged as unknown item |
-| Invalid data | INV-1009 (negative quantity) | Flagged as data integrity issue |
+## What to expect
 
-You may extend the seed data with additional items or columns (e.g., unit price, category) to support richer validation — the above is the minimum needed to exercise the provided test invoices. If you want your system to also validate pricing or vendor information, consider adding tables for those as well.
+The console opens on a **dashboard** with a preflight strip showing database and API-key health;
+run actions stay disabled until it is green.
 
-### Mock Payment API
+- **Submit**: pick one or more of the 20 sample invoices under `data/invoices/` (txt, json, csv,
+  xml, pdf), or upload your own. One selection runs as a single case with a live event stream;
+  several - or the whole directory - run as a batch with bounded concurrency.
+- Every case ends in exactly one stored status:
 
-```python
-def mock_payment(vendor, amount):
-    print(f"Paid {amount} to {vendor}")
-    return {"status": "success"}
+  | Status | Meaning |
+  |---|---|
+  | `SUCCEEDED` | A valid final decision exists (`APPROVE`, `REJECT`, or `HOLD`); an approval also has a valid payment. A rejection is a successful workflow outcome. |
+  | `NEEDS_HUMAN` | The team stopped cleanly and queued a review package for a human decision. |
+  | `FAILED` | Credentials, provider, database, source, tool, or payment failure prevented a trustworthy result. |
+  | `INCOMPLETE` | Cancellation, timeout, or a circuit breaker stopped the workflow. |
+
+- **Reviews**: cases flagged by policy (large amounts, stock exceptions, unknown items, date or
+  identity issues, non-USD currency, and similar) wait here. Record a decision with reviewer and
+  reason, then resume the case with one click.
+- Approved invoices record a **mock payment** with an idempotency key, so duplicate submissions of
+  the same invoice can never pay twice. The full audit trail lives in
+  `artifacts/results/CASE_ID.json` and `workflow.db`.
+
+## CLI (optional)
+
+The console and CLI share the same services:
+
+```powershell
+uv run python main.py --invoice_path=data/invoices/invoice_1001.txt   # original challenge command
+uv run invoice-agents process --invoice-path data/invoices/invoice_1001.txt
+uv run invoice-agents batch --invoice-dir data/invoices --concurrency 2
+uv run invoice-agents review list
+uv run invoice-agents review decide REVIEW_ID --reviewer vp@example.com --decision REJECT --reason "Not authorized."
+uv run invoice-agents review resume CASE_ID
 ```
 
-### Grok API Setup
+## Tests
 
-```python
-from xai import Grok
-
-client = Grok(api_key="your_key")
-response = client.chat.completions.create(
-    model="grok-3",
-    messages=[{"role": "user", "content": "Reason about this..."}]
-)
+```powershell
+uv run pytest -m "not live"    # free - makes no API calls
 ```
 
-## Running the System
+Paid live checks are explicit opt-ins: `uv run invoice-agents contract --live` proves provider
+compatibility, and `$env:RUN_LIVE_XAI="1"; uv run pytest -m live` runs the live suite.
 
-The system should be executable from the command line:
+## More documentation
 
-```bash
-python main.py --invoice_path=data/invoices/invoice1.txt
-```
-
-Output should include structured logs and results.
-
-## Evaluation Criteria
-
-- **Functionality** — Does the system work end-to-end?
-- **Code Quality** — Clean, testable, well-structured code with error handling and observability
-- **Agentic Sophistication** — LLM integration, multi-agent flow, tool use, self-correction loops
-- **Shipping Mindset** — Valuable MVP delivered under ambiguity; scope ruthlessly cut where needed
-- **Presentation** — Clear translation of technical decisions to business impact
-- **Above/Beyond** - Have you made it your own? Implemented additional features that make the solution feel great? Expanded assumptions? Added to test cases?
-- **UI/UX** - Users will understand and enjoy using this system.
-
-## Submission
-
-Submit your solution as a link to a public GitHub repository — GitHub only (github.com).
+- [`Docs/SYSTEM_GUIDE.md`](Docs/SYSTEM_GUIDE.md) - illustrated system guide: how a case flows,
+  what each of the eight agents does and how, the decision safety net, review/resume, payment
+  idempotency, storage, and the console - with mermaid diagrams for each piece
+- [`Docs/REFERENCE.md`](Docs/REFERENCE.md) - operational reference: database lifecycle and review
+  CLI commands, provider contract, quality gates, module boundaries, data limitations, and
+  troubleshooting
+- [`DEMO.md`](DEMO.md) - a short business-facing walkthrough
+- [`plans/UI_PLAN.md`](plans/UI_PLAN.md), [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md),
+  [`plans/PHASE8_RECONCILIATION.md`](plans/PHASE8_RECONCILIATION.md)

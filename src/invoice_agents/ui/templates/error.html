@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block title %}Error - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+<section class="error-list" style="margin-top:24px">
+  <h2><span class="badge tone-fail">{{ error.category }}</span>
+    {% if error.stop_reason %}<span class="mono">{{ error.stop_reason }}</span>{% endif %}</h2>
+  <p>{{ error.message }}</p>
+  {% if error.case_id %}<p class="small">case: <a class="mono" href="/cases/{{ error.case_id }}">{{ error.case_id }}</a></p>{% endif %}
+</section>
+<p><a class="btn" href="/">Back to dashboard</a></p>
+{% endblock %}

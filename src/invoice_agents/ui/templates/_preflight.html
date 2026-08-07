@@ -1,0 +1,23 @@
+{# The preflight strip: OK or the exact stop reason with the verbatim fix command. #}
+
+{% macro strip(preflight) %}
+<div class="preflight {{ '' if preflight.ok else 'failing' }}" role="status">
+  {% for item in preflight.items %}
+  <div class="item">
+    <span class="name">{{ item.name }}</span>
+    {% if item.ok %}
+      <span class="badge tone-ok">OK</span>
+    {% else %}
+      <span class="badge tone-fail">{{ item.stop_reason or 'FAILED' }}</span>
+    {% endif %}
+    <span class="small {{ 'dim' if item.ok else 'text-fail' }}">{{ item.detail }}</span>
+  </div>
+  {% endfor %}
+  <a class="small" href="/system" style="margin-left:auto">System</a>
+  {% for item in preflight.items if not item.ok and item.fix_command %}
+  <div class="fix">
+    <code>{{ item.fix_command }}</code>
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}

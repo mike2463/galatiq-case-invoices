@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% import '_macros.html' as m %}
+
+{% block title %}Live - {{ header.invoice_number or header.case_id }} - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+<section class="card" data-live-events data-case-id="{{ header.case_id }}">
+  <div class="spread">
+    <div>
+      <h1>{{ header.invoice_number or header.case_id }}
+        {% if header.vendor %}<span class="dim">&mdash; {{ header.vendor }}</span>{% endif %}</h1>
+      <p class="small dim">Live event stream. The stream is only a window &mdash; every event below is
+        already persisted in the workflow database.</p>
+    </div>
+    <div class="small">
+      <dl class="kv">
+        <dt>Case ID</dt><dd>{{ m.mono_id(header.case_id, 'case ID') }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <p id="stream-note" class="stream-note pulsing" aria-live="polite">Streaming persisted events&hellip;</p>
+  <div id="terminal-host" aria-live="polite"></div>
+  <ul class="timeline" id="live-timeline"></ul>
+
+  <p class="small" style="margin-top:16px">
+    <a href="/cases/{{ header.case_id }}">Open case detail (stored state)</a>
+  </p>
+</section>
+{% endblock %}
+
+{% block cli_hint %}
+CLI equivalent: <code>uv run invoice-agents case status {{ header.case_id }}</code>
+{% endblock %}

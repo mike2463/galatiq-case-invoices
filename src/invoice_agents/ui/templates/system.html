@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% import '_macros.html' as m %}
+
+{% block title %}System - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+<h1>System</h1>
+<p class="dim small">Read-only snapshot of verification, policy, and provider configuration. Nothing on
+  this page can change state.</p>
+
+{% for check in checks %}
+<section class="card">
+  <h2>{{ check.name }}</h2>
+  {% if check.info %}
+  <dl class="kv">
+    <dt>Path</dt><dd class="mono">{{ check.info.path }}</dd>
+    <dt>Kind</dt><dd>{{ check.info.kind }}</dd>
+    <dt>Schema version</dt><dd class="mono">{{ check.info.schema_version }}</dd>
+    <dt>Integrity</dt><dd><span class="badge tone-ok">{{ check.info.integrity }}</span></dd>
+    <dt>Tables</dt><dd class="mono small">{{ check.info.tables|join(', ') }}</dd>
+    <dt>Indexes</dt><dd class="mono small">{{ check.info.indexes|join(', ') }}</dd>
+  </dl>
+  {% else %}
+  <p><span class="badge tone-fail">{{ check.error.stop_reason or 'FAILED' }}</span></p>
+  <p class="text-fail">{{ check.error.message }}</p>
+  {% endif %}
+</section>
+{% endfor %}
+
+<section class="card">
+  <h2>Review policy <span class="dim small">(business policy, not an operational knob)</span></h2>
+  <dl class="kv">
+    <dt>Threshold</dt><dd class="mono">{{ settings.review_threshold_amount|fmt_amount }} {{ settings.review_threshold_currency }}</dd>
+    <dt>Effective date</dt><dd class="mono">{{ settings.review_threshold_effective_date }}</dd>
+    <dt>Due-date tolerance</dt><dd class="mono">{{ settings.due_date_tolerance_days }} calendar days</dd>
+    <dt>Review age accent</dt><dd class="mono">{{ settings.review_age_amber_hours }} hours (console display only)</dd>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Circuit breakers &amp; concurrency</h2>
+  <dl class="kv">
+    <dt>Max messages</dt><dd class="mono">{{ settings.max_messages }}</dd>
+    <dt>Model timeout</dt><dd class="mono">{{ settings.model_timeout_seconds }}s</dd>
+    <dt>Transient retries</dt><dd class="mono">{{ settings.transient_retries }}</dd>
+    <dt>Case concurrency</dt><dd class="mono">{{ settings.case_concurrency }}</dd>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Provider</h2>
+  <dl class="kv">
+    <dt>Model</dt><dd class="mono">{{ model }}</dd>
+    <dt>Base URL</dt><dd class="mono">{{ base_url }}</dd>
+    <dt>XAI_API_KEY</dt>
+    <dd>{% if key_present %}<span class="badge tone-ok">present</span>{% else %}<span class="badge tone-fail">missing</span>{% endif %}
+      <span class="dim small">the key value is never displayed</span></dd>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Run local test command</h2>
+  <pre class="cmd">{{ test_command }}</pre>
+  {{ m.copy_btn(test_command, 'test command') }}
+  <p class="small dim">The live xAI suite is opt-in and billed; see the README before running it.</p>
+</section>
+{% endblock %}
+
+{% block cli_hint %}
+CLI equivalents: <code>uv run python -m invoice_agents.db verify --db workflow.db --kind workflow</code> ·
+<code>uv run invoice-agents contract --live</code>
+{% endblock %}

@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% import '_preflight.html' as pf %}
+{% import '_macros.html' as m %}
+
+{% block title %}Submit - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+{{ pf.strip(preflight) }}
+
+<h1>Submit invoices</h1>
+
+<section class="card" id="single">
+  <h2>Process invoices</h2>
+  <form method="post" action="/submit" enctype="multipart/form-data">
+    <fieldset {% if not preflight.ok %}disabled{% endif %}>
+      <legend>Pick one or more existing files under <span class="mono">{{ invoice_dir }}</span></legend>
+      {% if files %}
+      <div class="table-wrap" style="max-height:320px; overflow-y:auto">
+        <table class="data">
+          <caption class="small">Supported formats: txt, json, csv, xml, pdf</caption>
+          <thead><tr>
+            <th scope="col"><input type="checkbox" data-select-all aria-label="Select all files"></th>
+            <th scope="col">File</th>
+            <th scope="col">Format</th>
+          </tr></thead>
+          <tbody>
+            {% for file in files %}
+            <tr>
+              <td><input type="checkbox" name="existing" id="file-{{ loop.index }}" value="{{ file.name }}"></td>
+              <td><label for="file-{{ loop.index }}" class="mono">{{ file.name }}</label></td>
+              <td>{{ m.format_chip(file.suffix[1:]|lower) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="empty">No invoice files found in <span class="mono">{{ invoice_dir }}</span>.</p>
+      {% endif %}
+    </fieldset>
+    <fieldset {% if not preflight.ok %}disabled{% endif %}>
+      <legend>&hellip;or upload a new one</legend>
+      <input type="file" name="upload" accept=".txt,.json,.csv,.xml,.pdf">
+      <p class="small dim">Uploads are copied into <span class="mono">{{ upload_dir }}</span> first, so
+        source provenance (canonical path + SHA-256) stays meaningful.</p>
+    </fieldset>
+    <button type="submit" class="primary" {% if not preflight.ok %}disabled title="Preflight is failing; fix it first"{% endif %}>Process invoices</button>
+    <span class="small dim">One selection runs as a single case with a live event stream;
+      several run as a batch at concurrency {{ default_concurrency }}.</span>
+  </form>
+</section>
+
+<section class="card" id="batch">
+  <h2>Run batch</h2>
+  <form method="post" action="/batch">
+    <fieldset {% if not preflight.ok %}disabled{% endif %}>
+      <legend>All {{ files|length }} supported files in <span class="mono">{{ invoice_dir }}</span></legend>
+      <label class="inline">Concurrency
+        <select name="concurrency">
+          {% for option in concurrency_options %}
+          <option value="{{ option }}" {% if option == default_concurrency %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <span class="small dim">configured default is {{ default_concurrency }}; the hard cap is 8</span>
+    </fieldset>
+    <button type="submit" class="primary" {% if not preflight.ok or not files %}disabled title="{{ 'Preflight is failing; fix it first' if not preflight.ok else 'No files to process' }}"{% endif %}>Run batch</button>
+    <span class="small dim">Preparation is sequential (identity visibility); runs share a bounded semaphore.</span>
+  </form>
+</section>
+{% endblock %}
+
+{% block cli_hint %}
+CLI equivalents: <code>uv run invoice-agents process --invoice-path {{ invoice_dir }}/FILE</code> ·
+<code>uv run invoice-agents batch --invoice-dir {{ invoice_dir }} --concurrency {{ default_concurrency }}</code>
+{% endblock %}

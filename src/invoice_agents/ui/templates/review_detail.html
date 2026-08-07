@@ -1,0 +1,213 @@
+{% extends 'base.html' %}
+{% import '_macros.html' as m %}
+{% import '_evidence.html' as ev %}
+
+{% block title %}Review {{ review.review_id|middle }} - Galatiq Invoice Console{% endblock %}
+
+{% block content %}
+<section class="card" id="review-header">
+  <div class="spread">
+    <div>
+      <h1>Review
+        {% if invoice and invoice.invoice_number %}<span class="dim">for</span> {{ invoice.invoice_number.normalized_value or invoice.invoice_number.raw_value or '(missing)' }}{% endif %}
+      </h1>
+      <div class="row">
+        {{ m.review_badge(review.status) }}
+        <span class="chip">cycle {{ review.sequence }}</span>
+        {% if review.amount %}{{ m.money(review.amount.amount, review.amount.currency) }}{% endif %}
+        <a class="mono small" href="/cases/{{ review.case_id }}">case {{ review.case_id|middle }}</a>
+      </div>
+    </div>
+    <div class="small">
+      <dl class="kv">
+        <dt>Review ID</dt><dd>{{ m.mono_id(review.review_id, 'review ID') }}</dd>
+        <dt>Created</dt><dd class="mono">{{ review.created_at|fmt_dt }}</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<div class="review-grid">
+  <div class="stack" id="review-package">
+
+    <section class="card" id="questions">
+      <h2>Questions for the reviewer</h2>
+      <ol class="questions">
+        {% for question in review.questions %}<li>{{ question }}</li>{% endfor %}
+      </ol>
+    </section>
+
+    <section class="card" id="reasons">
+      <h2>Review reasons ({{ review.reasons|length }}) <span class="dim small">verbatim</span></h2>
+      <ul class="plain">
+        {% for reason in review.reasons %}<li>{{ reason }}</li>{% endfor %}
+      </ul>
+    </section>
+
+    <section class="card" id="recommendation">
+      <h2>Agent recommendation <span class="dim small">(attributed to the approval agent)</span></h2>
+      <p>{{ m.decision_badge(review.agent_recommendation) }}</p>
+      {% if review.agent_rationale %}
+      <ul class="plain">{% for item in review.agent_rationale %}<li>{{ item }}</li>{% endfor %}</ul>
+      {% endif %}
+    </section>
+
+    {{ ev.critique_section(critique) }}
+
+    {% if rendered_pages %}
+    <section class="card" id="rendered-pages">
+      <h2>Original layout <span class="dim small">(rendered PDF evidence)</span></h2>
+      {% for page in rendered_pages %}
+      <figure>
+        <img class="rendered-page" src="/reviews/{{ review.review_id }}/pages/{{ page.page }}" alt="Rendered page {{ page.page }} of the source PDF">
+        <figcaption class="small dim">page {{ page.page }} · {{ page.renderer }} · sha256 {{ page.sha256|middle }}</figcaption>
+      </figure>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {{ ev.source_section(review.source) }}
+    {% if invoice %}
+      {{ ev.extraction_section(invoice) }}
+      {{ ev.lines_section(invoice, line_deltas) }}
+    {% endif %}
+    {{ ev.identity_section(identity, review.source.sha256) }}
+    {{ ev.inventory_section(inventory_list, unresolved) }}
+    {{ ev.financial_section(financial, suspicious, unavailable) }}
+    {{ ev.dates_section(dates) }}
+  </div>
+
+  <aside class="decision-rail">
+    <section class="card">
+      <h2>Decision</h2>
+
+      {% if decided %}
+      <div class="form-note" role="status">Decision recorded.</div>
+      {% endif %}
+      {% if form_error %}
+      <div class="form-error" role="alert">{{ form_error }}</div>
+      {% endif %}
+
+      {% if review.status == 'RESOLVED' and review.human_decision %}
+        <dl class="kv">
+          <dt>Reviewer</dt><dd>{{ review.human_decision.reviewer }}</dd>
+          <dt>Decision</dt><dd>{{ m.human_badge(review.human_decision.decision) }}</dd>
+          <dt>Reason</dt><dd>{{ review.human_decision.reason }}</dd>
+          <dt>Decided</dt><dd class="mono small">{{ review.human_decision.decided_at|fmt_dt }}</dd>
+          {% if review.human_decision.mappings %}
+          <dt>Mappings</dt>
+          <dd>{% for mapping in review.human_decision.mappings %}
+            <div><span class="mono">{{ mapping.raw_item }}</span> &rarr; <span class="mono">{{ mapping.sku }}</span></div>
+          {% endfor %}</dd>
+          {% endif %}
+          {% if review.human_decision.superseded_case_id %}
+          <dt>Supersedes</dt><dd><a class="mono" href="/cases/{{ review.human_decision.superseded_case_id }}">{{ review.human_decision.superseded_case_id|middle }}</a></dd>
+          {% endif %}
+        </dl>
+        {% if case_header and case_header.status == 'NEEDS_HUMAN' %}
+          {% if running %}
+          <p class="stream-note pulsing">The case is resuming &mdash; <a href="/cases/{{ review.case_id }}/live">watch it live</a>.</p>
+          {% else %}
+          <form method="post" action="/cases/{{ review.case_id }}/resume">
+            <button type="submit" class="primary">Resume case now</button>
+          </form>
+          <p class="small dim">Resuming hands the recorded decision back to the stopped team and returns you to the review queue; watch progress on the case's <a href="/cases/{{ review.case_id }}/live">live view</a>.</p>
+          {% endif %}
+        {% elif case_header %}
+          <p class="small dim">Case status is now {{ m.status_badge(case_header.status) }} &mdash; <a href="/cases/{{ review.case_id }}">open the case</a>.</p>
+        {% endif %}
+
+      {% elif review.status == 'RESOLVED' %}
+        <p class="dim">This review is resolved; the recorded decision payload is shown on the case page.</p>
+
+      {% else %}
+      <form method="post" action="/reviews/{{ review.review_id }}/decision" data-decision-form>
+        <p>
+          <label for="reviewer">Reviewer <span class="dim">(required)</span></label><br>
+          <input type="text" id="reviewer" name="reviewer" required
+                 value="{{ form_values.get('reviewer') or reviewer_prefill }}"
+                 placeholder="vp@example.com" style="width:100%">
+        </p>
+
+        <div class="kinds" role="radiogroup" aria-label="Decision">
+          {% for kind in decision_kinds %}
+          <div class="kind">
+            <label>
+              <input type="radio" name="decision" value="{{ kind.value }}" required
+                     {% if form_values.get('decision') == kind.value %}checked{% endif %}>
+              {{ kind.value }}
+            </label>
+            <p class="consequence">{{ consequences[kind] }}</p>
+
+            {% if kind.value == 'ESTABLISH_MAPPING' %}
+            <div class="subform" data-for="ESTABLISH_MAPPING">
+              {% if inventory_error %}
+                <p class="text-fail small">Inventory database unavailable: {{ inventory_error }}</p>
+              {% elif unresolved_items %}
+                <table class="data small">
+                  <caption class="small">Raw item &rarr; SKU (rows left unmapped are not submitted)</caption>
+                  <thead><tr><th scope="col">Raw item</th><th scope="col">SKU</th></tr></thead>
+                  <tbody>
+                  {% for item in unresolved_items %}
+                  <tr>
+                    <td class="mono small">{{ item }}<input type="hidden" name="mapping_raw" value="{{ item }}"></td>
+                    <td>
+                      <select name="mapping_sku" aria-label="SKU for {{ item }}">
+                        <option value="">- leave unmapped -</option>
+                        {% for row in inventory_rows %}
+                        <option value="{{ row.sku }}">{{ row.sku }} ({{ row.item_name }}, stock {{ row.available_stock }})</option>
+                        {% endfor %}
+                      </select>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <p class="small dim">This case has no unmapped raw items; ESTABLISH_MAPPING will be rejected without a mapping.</p>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            {% if kind.value == 'SUPERSEDE_REVISION' %}
+            <div class="subform" data-for="SUPERSEDE_REVISION">
+              {% if prior_cases %}
+              <label for="superseded_case_id" class="small">Superseded prior case</label>
+              <select name="superseded_case_id" id="superseded_case_id" style="width:100%">
+                <option value="">- select the superseded case -</option>
+                {% for prior in prior_cases %}
+                <option value="{{ prior.case_id }}" {% if form_values.get('superseded_case_id') == prior.case_id %}selected{% endif %}>
+                  {{ prior.case_id|middle }} · {{ prior.declared_total|fmt_amount }} {{ prior.currency or '' }} ·
+                  {% if prior.payment_status %}payment {{ prior.payment_status }}{% else %}no payment{% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              {% else %}
+              <p class="small dim">No prior cases share this invoice number; SUPERSEDE_REVISION will be rejected without one.</p>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+
+        <p>
+          <label for="reason">Reason <span class="dim">(required, recorded verbatim)</span></label><br>
+          <textarea id="reason" name="reason" rows="3" required style="width:100%"
+                    placeholder="Why this decision is correct, based on the evidence.">{{ form_values.get('reason', '') }}</textarea>
+        </p>
+
+        <button type="submit" class="primary">Record decision</button>
+        <p class="small dim">No decision is preselected. The reviewer, decision, reason, and timestamp become part of the permanent audit trail.</p>
+      </form>
+      {% endif %}
+    </section>
+  </aside>
+</div>
+{% endblock %}
+
+{% block cli_hint %}
+CLI equivalents: <code>uv run invoice-agents review show {{ review.review_id }}</code> ·
+<code>uv run invoice-agents review decide {{ review.review_id }} --reviewer YOU --decision KIND --reason "..."</code> ·
+<code>uv run invoice-agents review resume {{ review.case_id }}</code>
+{% endblock %}
